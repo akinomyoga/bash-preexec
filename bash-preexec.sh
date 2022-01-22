@@ -358,6 +358,13 @@ if [[ -z "${__bp_delay_install:-}" ]]; then
 fi;
 
 # Integration with ble.sh (https://github.com/akinomyoga/ble.sh)
+
+_BP_BLESH_PREEXEC_TRAP_STRING='__bp_preexec_invoke_exec "$_"'
+_BP_BLESH_PRECMD_BEGIN='__bp_precmd_invoke_cmd'
+_BP_BLESH_PRECMD_END='__bp_interactive_mode'
+_BP_BLESH_VAR_INSTALL_STRING=__bp_install_string
+_BP_BLESH_VAR_TRAP_STRING=__bp_trap_string
+
 __bp_blesh_initialize() {
     # We run the initialization only once.
     __bp_blesh_initialize() { true; }
@@ -379,17 +386,17 @@ __bp_blesh_initialize() {
     # Remove bash-preexec hooks
     __bp_blesh_attach_hook() {
         # Remove __bp_install hook in PROMPT_COMMAND.
-        if [[ ${PROMPT_COMMAND-} == *"$__bp_install_string"* ]]; then
-            PROMPT_COMMAND="${PROMPT_COMMAND//$__bp_install_string[;$'\n']}" # Edge case of appending to PROMPT_COMMAND
-            PROMPT_COMMAND="${PROMPT_COMMAND//$__bp_install_string}"
+        if [[ ${PROMPT_COMMAND-} == *"${!_BP_BLESH_VAR_INSTALL_STRING}"* ]]; then
+            PROMPT_COMMAND="${PROMPT_COMMAND//${!_BP_BLESH_VAR_INSTALL_STRING}[;$'\n']}" # Edge case of appending to PROMPT_COMMAND
+            PROMPT_COMMAND="${PROMPT_COMMAND//${!_BP_BLESH_VAR_INSTALL_STRING}}"
         fi
         
         # Remove bash-preexec hook in DEBUG trap.
-        local trap_string
+        local q=\' Q="'\''" trap_string
         ble/util/assign trap_string 'builtin trap -p DEBUG'
-        if [[ $trap_string == "trap -- '__bp_preexec_invoke_exec \"\$_\"' DEBUG" ]]; then
-          if [[ ${__bp_trap_string-} ]]; then
-              builtin eval -- "builtin $__bp_trap_string"
+        if [[ $trap_string == "trap -- '${_BP_BLESH_PREEXEC_TRAP_STRING//$q/$Q}' DEBUG" ]]; then
+          if [[ ${!_BP_BLESH_VAR_TRAP_STRING-} ]]; then
+              builtin eval -- "builtin ${!_BP_BLESH_VAR_TRAP_STRING}"
           else
               builtin trap - DEBUG
           fi
@@ -397,17 +404,17 @@ __bp_blesh_initialize() {
 
         # Remove bash-preexec preexec hook in ble.sh DEBUG trap.
         ble/util/assign trap_string 'ble/builtin/trap -p DEBUG'
-        if [[ $trap_string == "trap -- '__bp_preexec_invoke_exec \"\$_\"' DEBUG" ]]; then
-          if [[ ${__bp_trap_string-} ]]; then
-              builtin eval -- "ble/builtin/$__bp_trap_string"
+        if [[ $trap_string == "trap -- '${_BP_BLESH_PREEXEC_TRAP_STRING//$q/$Q}' DEBUG" ]]; then
+          if [[ ${!_BP_BLESH_VAR_TRAP_STRING-} ]]; then
+              builtin eval -- "ble/builtin/${!_BP_BLESH_VAR_TRAP_STRING}"
           else
               ble/builtin/trap - DEBUG
           fi
         fi
 
         # Remove bash-preexec precmd hook PROMPT_COMMAND
-        PROMPT_COMMAND=${PROMPT_COMMAND/#$'__bp_precmd_invoke_cmd\n'/$'\n'}
-        PROMPT_COMMAND=${PROMPT_COMMAND%$'\n__bp_interactive_mode'}
+        PROMPT_COMMAND=${PROMPT_COMMAND/#$_BP_BLESH_PRECMD_BEGIN$'\n'/$'\n'}
+        PROMPT_COMMAND=${PROMPT_COMMAND%$'\n'$_BP_BLESH_PRECMD_END}
         PROMPT_COMMAND=${PROMPT_COMMAND#$'\n'}
     }
     blehook ATTACH-+=__bp_blesh_attach_hook
