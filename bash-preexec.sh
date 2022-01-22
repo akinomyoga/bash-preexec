@@ -139,7 +139,10 @@ __bp_precmd_invoke_cmd() {
       return
     fi
     local __bp_inside_precmd=1
+    __bp_precmd_invoke_cmd_impl
+}
 
+__bp_precmd_invoke_cmd_impl() {
     # Invoke every function defined in our function array.
     local precmd_function
     for precmd_function in "${precmd_functions[@]}"; do
@@ -240,10 +243,26 @@ __bp_preexec_invoke_exec() {
         return
     fi
 
-    # Invoke every function defined in our function array.
+    local preexec_ret_value
+    __bp_preexec_invoke_exec_impl "$this_command"
+
+    # Restore the last argument of the last executed command, and set the return
+    # value of the DEBUG trap to be the return code of the last preexec function
+    # to return an error.
+    # If `extdebug` is enabled a non-zero return value from any preexec function
+    # will cause the user's command not to execute.
+    # Run `shopt -s extdebug` to enable
+    __bp_set_ret_value "$preexec_ret_value" "$__bp_last_argument_prev_command"
+}
+
+# This function invokes every function defined in our function array.  This
+# function assigns the last error exit status to the variable
+# `preexec_ret_value`.  If there is no error, preexec_ret_value is set to `0`.
+__bp_preexec_invoke_exec_impl() {
+    local this_command=$1
     local preexec_function
     local preexec_function_ret_value
-    local preexec_ret_value=0
+    preexec_ret_value=0
     for preexec_function in "${preexec_functions[@]:-}"; do
 
         # Only execute each function if it actually exists.
@@ -258,14 +277,6 @@ __bp_preexec_invoke_exec() {
             fi
         fi
     done
-
-    # Restore the last argument of the last executed command, and set the return
-    # value of the DEBUG trap to be the return code of the last preexec function
-    # to return an error.
-    # If `extdebug` is enabled a non-zero return value from any preexec function
-    # will cause the user's command not to execute.
-    # Run `shopt -s extdebug` to enable
-    __bp_set_ret_value "$preexec_ret_value" "$__bp_last_argument_prev_command"
 }
 
 __bp_install() {
@@ -344,4 +355,85 @@ __bp_install_after_session_init() {
 # Run our install so long as we're not delaying it.
 if [[ -z "${__bp_delay_install:-}" ]]; then
     __bp_install_after_session_init
+fi;
+
+# Integration with ble.sh (https://github.com/akinomyoga/ble.sh)
+__bp_blesh_initialize() {
+    # We run the initialization only once.
+    __bp_blesh_initialize() { true; }
+
+    __bp_blesh_precmd_hook() {
+        __bp_last_ret_value="$?" BP_PIPESTATUS=("${BLE_PIPESTATUS[@]}")
+        local __bp_blesh_invoking_through_blesh=1
+        __bp_precmd_invoke_cmd_impl
+    }
+    blehook PRECMD-+=__bp_blesh_precmd_hook
+
+    __bp_blesh_preexec_hook() {
+        __bp_last_ret_value=$?
+        local __bp_blesh_invoking_through_blesh=1
+        __bp_preexec_invoke_exec_impl "$1"
+    }
+    blehook PREEXEC-+=__bp_blesh_preexec_hook
+
+    # Remove bash-preexec hooks
+    __bp_blesh_attach_hook() {
+        # Remove __bp_install hook in PROMPT_COMMAND.
+        if [[ ${PROMPT_COMMAND-} == *"$__bp_install_string"* ]]; then
+            PROMPT_COMMAND="${PROMPT_COMMAND//$__bp_install_string[;$'\n']}" # Edge case of appending to PROMPT_COMMAND
+            PROMPT_COMMAND="${PROMPT_COMMAND//$__bp_install_string}"
+        fi
+        
+        # Remove bash-preexec hook in DEBUG trap.
+        local trap_string
+        ble/util/assign trap_string 'builtin trap -p DEBUG'
+        if [[ $trap_string == "trap -- '__bp_preexec_invoke_exec \"\$_\"' DEBUG" ]]; then
+          if [[ ${__bp_trap_string-} ]]; then
+              builtin eval -- "builtin $__bp_trap_string"
+          else
+              builtin trap - DEBUG
+          fi
+        fi
+
+        # Remove bash-preexec preexec hook in ble.sh DEBUG trap.
+        ble/util/assign trap_string 'ble/builtin/trap -p DEBUG'
+        if [[ $trap_string == "trap -- '__bp_preexec_invoke_exec \"\$_\"' DEBUG" ]]; then
+          if [[ ${__bp_trap_string-} ]]; then
+              builtin eval -- "ble/builtin/$__bp_trap_string"
+          else
+              ble/builtin/trap - DEBUG
+          fi
+        fi
+
+        # Remove bash-preexec precmd hook PROMPT_COMMAND
+        PROMPT_COMMAND=${PROMPT_COMMAND/#$'__bp_precmd_invoke_cmd\n'/$'\n'}
+        PROMPT_COMMAND=${PROMPT_COMMAND%$'\n__bp_interactive_mode'}
+        PROMPT_COMMAND=${PROMPT_COMMAND#$'\n'}
+    }
+    blehook ATTACH-+=__bp_blesh_attach_hook
+
+    # Reinstall bash-preexec hooks
+    blehook DETACH-+=__bp_install
+
+    if [[ $BLE_ATTACHED ]]; then
+        __bp_blesh_attach_hook
+    fi
+
+    __bp_blesh_check() {
+        if [[ $BLE_ATTACHED && ! ${__bp_blesh_invoking_through_blesh-} ]]; then
+            __bp_blesh_attach_hook
+        fi
+    }
+    precmd_function+=(__bp_blesh_check)
+    preexec_function+=(__bp_blesh_check)
+
+    return 0
+}
+if [[ ${BLE_VERSION-} ]]; then
+    # If ble.sh is already loaded, we set up PRECMD / PREEXEC hooks now.
+    __bp_blesh_initialize
+else
+    # If ble.sh is not yet loaded, we register the initializer in BLE_ONLOAD so
+    # that it will be called when ble.sh is loaded later.
+    BLE_ONLOAD+=(__bp_blesh_initialize)
 fi;
