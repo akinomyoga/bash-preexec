@@ -47,6 +47,11 @@ if [[ -z "${BASH_VERSINFO-}" ]] || (( BASH_VERSINFO[0] < 3 || (BASH_VERSINFO[0] 
     return 1
 fi
 
+# We do not enable bash-preexc in non-interactive shells (except in bats tests)
+if [[ $- != *i* && ${BATS_TEST_FILENAME-} != *.bats ]]; then
+   return 0
+fi
+
 # Avoid duplicate inclusion
 if [[ -n "${bash_preexec_imported:-}" || -n "${__bp_imported:-}" ]]; then
     return 0
