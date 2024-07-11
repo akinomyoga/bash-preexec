@@ -48,8 +48,8 @@ if [[ -z "${BASH_VERSINFO-}" ]] || (( BASH_VERSINFO[0] < 3 || (BASH_VERSINFO[0] 
 fi
 
 # We do not enable bash-preexc in non-interactive shells (except in tests).
-# `BATS_VERSION` is set by "bats" for "tests/*.bats".
-if [[ $- != *i* && ! ${BATS_VERSION-} ]]; then
+# `__bp_inside_test` is set in test/*.bats in bash-preexec repository.
+if [[ $- != *i* && ! ${__bp_inside_test-} ]]; then
     return 0
 fi
 
