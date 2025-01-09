@@ -95,7 +95,7 @@ set_exit_code_and_run_precmd() {
   trap_count_snapshot=$trap_invoked_count
 
   [ "$(trap -p DEBUG | cut -d' ' -f3)" == "'__bp_preexec_invoke_exec" ]
-  [[ "${preexec_functions[*]}" == *"__bp_original_debug_trap"* ]] || return 1
+  [ "${__bp_original_debug_trap-}" == foo ]
 
   __bp_interactive_mode # triggers the DEBUG trap
 

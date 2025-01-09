@@ -205,6 +205,8 @@ __bp_in_prompt_command() {
 # environment to attempt to detect if the current command is being invoked
 # interactively, and invoke 'preexec' if so.
 __bp_preexec_invoke_exec() {
+    # Invoke the original DEBUG trap
+    eval -- "${__bp_original_debug_trap-}"
 
     # Save the contents of $_ so that it can be restored later on.
     # https://stackoverflow.com/questions/40944532/bash-preserve-in-a-debug-trap#40944702
@@ -296,18 +298,11 @@ __bp_install() {
 
     trap '__bp_preexec_invoke_exec "$_"' DEBUG
 
-    # Preserve any prior DEBUG trap as a preexec function
-    local prior_trap
+    # Preserve any prior DEBUG trap in the variable "__bp_original_debug_trap"
     # we can't easily do this with variable expansion. Leaving as sed command.
     # shellcheck disable=SC2001
-    prior_trap=$(sed "s/[^']*'\(.*\)'[^']*/\1/" <<<"${__bp_trap_string:-}")
+    __bp_original_debug_trap=$(sed "s/[^']*'\(.*\)'[^']*/\1/" <<<"${__bp_trap_string:-}")
     unset __bp_trap_string
-    if [[ -n "$prior_trap" ]]; then
-        eval '__bp_original_debug_trap() {
-          '"$prior_trap"'
-        }'
-        preexec_functions+=(__bp_original_debug_trap)
-    fi
 
     # Adjust our HISTCONTROL Variable if needed.
     __bp_adjust_histcontrol
